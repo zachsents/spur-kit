@@ -38,4 +38,7 @@ Its `package.json` carries the manifest:
 }
 ```
 
+A spur that isn't TypeScript gives `command` instead of `main` (its `./` paths from the package's
+folder), and `"shim": "switchboard"` if it's a Switchboard appendage.
+
 Switch installs it from a git URL or package name: `spurs_install`, or Spurs in the desktop.
