@@ -3,6 +3,8 @@
 // MIT, Copyright (c) 2026 T3 Tools Inc.: decide, then one transaction for events and projections,
 // then publish after commit.
 import { Database } from "bun:sqlite"
+import { mkdirSync } from "node:fs"
+import path from "node:path"
 import { Context, Effect, Layer, Option, PubSub, Result, Schema, Semaphore, Stream } from "effect"
 import type { Scope } from "effect"
 
@@ -165,8 +167,11 @@ const checked = (def: { readonly check: Check } | undefined, d: Draft) => {
     : new Rejected({ reason: `${d.type}: ${result.failure}` })
 }
 
-const open = (path: string) => {
-  const db = new Database(path, { create: true, strict: true })
+const open = (file: string) => {
+  if (file !== ":memory:") {
+    mkdirSync(path.dirname(file), { recursive: true })
+  }
+  const db = new Database(file, { create: true, strict: true })
   db.run("PRAGMA journal_mode = WAL")
   // WAL with NORMAL survives an app crash; a power cut can lose the last commits.
   db.run("PRAGMA synchronous = NORMAL")
