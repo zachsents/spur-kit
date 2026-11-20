@@ -16,7 +16,11 @@
     "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "isolatedDeclarations": true,
+    "erasableSyntaxOnly": true,
+    "exactOptionalPropertyTypes": true,
+    "declaration": true
   },
   "include": ["src"]
 }

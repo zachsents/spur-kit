@@ -83,11 +83,26 @@ export function tool<R>(
   }
 }
 
+/** Where a widget can show. */
+export type Surface = "chat" | "space" | "liveActivity" | "wallet"
 const surface = Schema.Literals(["chat", "space", "liveActivity", "wallet"])
-export type Surface = typeof surface.Type
 
 /** A descriptor only: what it is, where it can show, its view, and the data feeding it, if any. */
-export const widget = Schema.Struct({
+export interface Widget {
+  readonly name: string
+  readonly title: string
+  readonly surfaces: readonly Surface[]
+  /** Its content: a `ui://` resource of A2UI messages. */
+  readonly resource: string
+  /** The space it goes in until it's placed, if any; made, with `spaceName`, if there's none. */
+  readonly space?: string
+  readonly spaceName?: string
+  /** The read-only tool whose structured result is its data model, and the events that refresh it. */
+  readonly tool?: string
+  readonly refresh?: readonly string[]
+}
+
+export const widget: Schema.Codec<Widget> = Schema.Struct({
   name: Schema.String,
   title: Schema.String,
   surfaces: Schema.Array(surface),
@@ -100,7 +115,6 @@ export const widget = Schema.Struct({
   tool: Schema.optionalKey(Schema.String),
   refresh: Schema.optionalKey(Schema.Array(Schema.String)),
 })
-export type Widget = typeof widget.Type
 
 /** A widget as its app defines it: the descriptor, and its A2UI messages (one surface, any id). */
 export interface WidgetDef extends Widget {
@@ -157,70 +171,84 @@ export interface Occurrence {
 const BUFFERED = 1000
 
 /** How an app emits its events, to whoever subscribed (the gateway). */
-export class AppEvents extends Context.Service<
-  AppEvents,
-  {
-    readonly emit: (draft: Draft) => Effect.Effect<void, Rejected>
-    readonly subscribe: (
-      name: string,
-    ) => Effect.Effect<PubSub.Subscription<Occurrence>, never, Scope.Scope>
-  }
->()("switch/AppEvents") {
-  static readonly layer = (app: { readonly events: readonly AppEvent[] }) =>
-    Layer.effect(
-      AppEvents,
-      Effect.gen(function* making() {
-        const defs = new Map(app.events.map((e) => [e.type, e]))
-        const live = yield* PubSub.unbounded<Occurrence>()
-        const listeners = new Map<string, number>()
-        // Emitted before anyone subscribed: kept for the first subscriber, as sbmcp does.
-        const waiting = new Map<string, Occurrence[]>()
-
-        const emit = (draft: Draft) =>
-          Effect.suspend(() => {
-            const def = defs.get(draft.type)
-            if (!def) {
-              return Effect.fail(new Rejected({ reason: `Unknown type ${draft.type}` }))
-            }
-            const checked = def.check(draft.payload)
-            if (Result.isFailure(checked)) {
-              return Effect.fail(new Rejected({ reason: `${draft.type}: ${checked.failure}` }))
-            }
-            const occurrence: Occurrence = {
-              eventId: randomUUID(),
-              name: draft.type,
-              timestamp: new Date().toISOString(),
-              data: checked.success,
-            }
-            if ((listeners.get(draft.type) ?? 0) > 0) {
-              return Effect.asVoid(PubSub.publish(live, occurrence))
-            }
-            const held = waiting.get(draft.type) ?? []
-            held.push(occurrence)
-            held.splice(0, Math.max(0, held.length - BUFFERED))
-            waiting.set(draft.type, held)
-            return Effect.void
-          })
-
-        const subscribe = (name: string) =>
-          Effect.gen(function* subscribing() {
-            const subscription = yield* PubSub.subscribe(live)
-            listeners.set(name, (listeners.get(name) ?? 0) + 1)
-            yield* Effect.addFinalizer(() =>
-              Effect.sync(() => {
-                listeners.set(name, (listeners.get(name) ?? 1) - 1)
-              }),
-            )
-            const held = waiting.get(name) ?? []
-            waiting.delete(name)
-            yield* PubSub.publishAll(live, held)
-            return subscription
-          })
-
-        return { emit, subscribe }
-      }),
-    )
+export interface AppEventsShape {
+  readonly emit: (draft: Draft) => Effect.Effect<void, Rejected>
+  readonly subscribe: (
+    name: string,
+  ) => Effect.Effect<PubSub.Subscription<Occurrence>, never, Scope.Scope>
 }
+
+/** The `AppEvents` service's identifier, as a requirement. */
+export interface AppEventsService {
+  readonly AppEvents: unique symbol
+}
+
+const appEventsKey: Context.Service<AppEventsService, AppEventsShape> = Context.Service<
+  AppEventsService,
+  AppEventsShape
+>("switch/AppEvents")
+
+const appEventsLayer = (app: {
+  readonly events: readonly AppEvent[]
+}): Layer.Layer<AppEventsService> =>
+  Layer.effect(
+    appEventsKey,
+    Effect.gen(function* making() {
+      const defs = new Map(app.events.map((e) => [e.type, e]))
+      const live = yield* PubSub.unbounded<Occurrence>()
+      const listeners = new Map<string, number>()
+      // Emitted before anyone subscribed: kept for the first subscriber, as sbmcp does.
+      const waiting = new Map<string, Occurrence[]>()
+
+      const emit = (draft: Draft) =>
+        Effect.suspend(() => {
+          const def = defs.get(draft.type)
+          if (!def) {
+            return Effect.fail(new Rejected({ reason: `Unknown type ${draft.type}` }))
+          }
+          const checked = def.check(draft.payload)
+          if (Result.isFailure(checked)) {
+            return Effect.fail(new Rejected({ reason: `${draft.type}: ${checked.failure}` }))
+          }
+          const occurrence: Occurrence = {
+            eventId: randomUUID(),
+            name: draft.type,
+            timestamp: new Date().toISOString(),
+            data: checked.success,
+          }
+          if ((listeners.get(draft.type) ?? 0) > 0) {
+            return Effect.asVoid(PubSub.publish(live, occurrence))
+          }
+          const held = waiting.get(draft.type) ?? []
+          held.push(occurrence)
+          held.splice(0, Math.max(0, held.length - BUFFERED))
+          waiting.set(draft.type, held)
+          return Effect.void
+        })
+
+      const subscribe = (name: string) =>
+        Effect.gen(function* subscribing() {
+          const subscription = yield* PubSub.subscribe(live)
+          listeners.set(name, (listeners.get(name) ?? 0) + 1)
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => {
+              listeners.set(name, (listeners.get(name) ?? 1) - 1)
+            }),
+          )
+          const held = waiting.get(name) ?? []
+          waiting.delete(name)
+          yield* PubSub.publishAll(live, held)
+          return subscription
+        })
+
+      return { emit, subscribe }
+    }),
+  )
+
+export const AppEvents: Context.Service<AppEventsService, AppEventsShape> & {
+  /** Emits `app`'s events, holding each for the first subscriber to its type. */
+  readonly layer: typeof appEventsLayer
+} = Object.assign(appEventsKey, { layer: appEventsLayer })
 
 const describe = (error: unknown): string => {
   if (error instanceof Rejected) {
@@ -232,7 +260,7 @@ const describe = (error: unknown): string => {
   return String(error)
 }
 
-const ANSWER = Symbol("answer")
+const ANSWER: unique symbol = Symbol("answer")
 
 /** A tool's answer with content of its own (an image, say) beside its structured result. */
 export interface Answer {
@@ -278,122 +306,126 @@ const jsonSchema = (schema: Schema.Top) => {
 }
 
 /** Serves an app over MCP on `transport` until the scope closes. Returns what waits for the client to go. */
-export const serve = Effect.fnUntraced(function* serving<R>(app: App<R>, transport: Transport) {
-  const events = yield* AppEvents
-  const run = yield* FiberSet.makeRuntimePromise<R | AppEvents>()
-  const mcp = new McpServer(
-    { name: app.name, version: app.version },
-    {
-      capabilities: {
-        tools: {},
-        resources: {},
-        extensions: { [EVENTS]: { listChanged: false } },
+export const serve: <R>(
+  app: App<R>,
+  transport: Transport,
+) => Effect.Effect<Effect.Effect<void>, never, R | AppEventsService | Scope.Scope> =
+  Effect.fnUntraced(function* serving<R>(app: App<R>, transport: Transport) {
+    const events = yield* AppEvents
+    const run = yield* FiberSet.makeRuntimePromise<R | AppEventsService>()
+    const mcp = new McpServer(
+      { name: app.name, version: app.version },
+      {
+        capabilities: {
+          tools: {},
+          resources: {},
+          extensions: { [EVENTS]: { listChanged: false } },
+        },
+        ...(app.instructions === undefined ? {} : { instructions: app.instructions }),
       },
-      ...(app.instructions === undefined ? {} : { instructions: app.instructions }),
-    },
-  )
-
-  for (const t of app.tools) {
-    // A tool names the UI resource its results show in (MCP Apps' field, which A2UI's MCP catalog
-    // reads too); a tool feeding several widgets names the first.
-    const fed = app.widgets.find((w) => w.tool === t.name)
-    const config = {
-      description: t.description,
-      annotations: { readOnlyHint: t.readOnly },
-      ...(fed && { _meta: { ui: { resourceUri: fed.resource } } }),
-    }
-    const call = async (input: unknown) =>
-      await run(
-        t.run(input).pipe(
-          Effect.map(toResult),
-          Effect.catch((error) =>
-            Effect.succeed<CallToolResult>({
-              content: [{ type: "text", text: describe(error) }],
-              isError: true,
-            }),
-          ),
-        ),
-      )
-    if (t.input) {
-      mcp.registerTool(t.name, { ...config, inputSchema: t.input }, call)
-    } else {
-      mcp.registerTool(t.name, config, async () => await call({}))
-    }
-  }
-
-  for (const w of app.widgets) {
-    mcp.registerResource(
-      w.title,
-      w.resource,
-      { mimeType: A2UI_MIME_TYPE, _meta: { [WIDGET]: descriptor(w) } },
-      async () => ({
-        contents: [
-          { uri: w.resource, mimeType: A2UI_MIME_TYPE, text: JSON.stringify(await w.a2ui()) },
-        ],
-      }),
     )
-  }
 
-  const list = app.events.map((e) => ({
-    name: e.type,
-    description: "",
-    delivery: ["push"],
-    inputSchema: { type: "object", properties: {} },
-    payloadSchema: jsonSchema(e.payload),
-    _meta: { [VERSION]: e.version },
-  }))
-  mcp.server.setRequestHandler("events/list", { params: anything }, () => ({ events: list }))
-
-  // A push subscription: confirm, then each occurrence as a notification, with a heartbeat when
-  // quiet, until the client cancels. No replay, so every cursor is null.
-  mcp.server.setRequestHandler("events/stream", { params: streamParams }, async (params, ctx) => {
-    if (!app.events.some((e) => e.type === params.name)) {
-      throw new ProtocolError(-32_023, "NotFound", { kind: "event" })
+    for (const t of app.tools) {
+      // A tool names the UI resource its results show in (MCP Apps' field, which A2UI's MCP catalog
+      // reads too); a tool feeding several widgets names the first.
+      const fed = app.widgets.find((w) => w.tool === t.name)
+      const config = {
+        description: t.description,
+        annotations: { readOnlyHint: t.readOnly },
+        ...(fed && { _meta: { ui: { resourceUri: fed.resource } } }),
+      }
+      const call = async (input: unknown) =>
+        await run(
+          t.run(input).pipe(
+            Effect.map(toResult),
+            Effect.catch((error) =>
+              Effect.succeed<CallToolResult>({
+                content: [{ type: "text", text: describe(error) }],
+                isError: true,
+              }),
+            ),
+          ),
+        )
+      if (t.input) {
+        mcp.registerTool(t.name, { ...config, inputSchema: t.input }, call)
+      } else {
+        mcp.registerTool(t.name, config, async () => await call({}))
+      }
     }
-    const heartbeatMs = Math.max(5000, Math.min(params.heartbeatMs ?? 30_000, 300_000))
-    const meta = { [SUBSCRIPTION]: ctx.mcpReq.id }
-    const notify = (method: string, p: Record<string, unknown>) =>
-      Effect.promise(async () => {
-        await ctx.mcpReq.notify({ method, params: { ...p, _meta: meta } })
-      })
-    return await run(
-      Effect.scoped(
-        Effect.gen(function* streaming() {
-          const subscription = yield* events.subscribe(params.name)
-          yield* notify("notifications/events/active", {
-            cursor: null,
-            truncated: false,
-            heartbeatMs,
-          })
-          for (;;) {
-            const next = yield* Effect.timeoutOption(PubSub.take(subscription), heartbeatMs)
-            if (Option.isNone(next)) {
-              yield* notify("notifications/events/heartbeat", { cursor: null })
-            } else if (next.value.name === params.name) {
-              yield* notify("notifications/events/event", { ...next.value, cursor: null })
-            }
-          }
-        }),
-      ),
-      { signal: ctx.mcpReq.signal },
-    ).then(() => ({ _meta: meta }))
-  })
 
-  const closed = yield* Deferred.make<boolean>()
-  // MCP's own hook, not a DOM target.
-  Object.assign(mcp.server, {
-    onclose: () => {
-      Deferred.doneUnsafe(closed, Exit.succeed(true))
-    },
-  })
-  yield* Effect.acquireRelease(
-    Effect.promise(async () => {
-      await mcp.connect(transport)
-    }),
-    () =>
+    for (const w of app.widgets) {
+      mcp.registerResource(
+        w.title,
+        w.resource,
+        { mimeType: A2UI_MIME_TYPE, _meta: { [WIDGET]: descriptor(w) } },
+        async () => ({
+          contents: [
+            { uri: w.resource, mimeType: A2UI_MIME_TYPE, text: JSON.stringify(await w.a2ui()) },
+          ],
+        }),
+      )
+    }
+
+    const list = app.events.map((e) => ({
+      name: e.type,
+      description: "",
+      delivery: ["push"],
+      inputSchema: { type: "object", properties: {} },
+      payloadSchema: jsonSchema(e.payload),
+      _meta: { [VERSION]: e.version },
+    }))
+    mcp.server.setRequestHandler("events/list", { params: anything }, () => ({ events: list }))
+
+    // A push subscription: confirm, then each occurrence as a notification, with a heartbeat when
+    // quiet, until the client cancels. No replay, so every cursor is null.
+    mcp.server.setRequestHandler("events/stream", { params: streamParams }, async (params, ctx) => {
+      if (!app.events.some((e) => e.type === params.name)) {
+        throw new ProtocolError(-32_023, "NotFound", { kind: "event" })
+      }
+      const heartbeatMs = Math.max(5000, Math.min(params.heartbeatMs ?? 30_000, 300_000))
+      const meta = { [SUBSCRIPTION]: ctx.mcpReq.id }
+      const notify = (method: string, p: Record<string, unknown>) =>
+        Effect.promise(async () => {
+          await ctx.mcpReq.notify({ method, params: { ...p, _meta: meta } })
+        })
+      return await run(
+        Effect.scoped(
+          Effect.gen(function* streaming() {
+            const subscription = yield* events.subscribe(params.name)
+            yield* notify("notifications/events/active", {
+              cursor: null,
+              truncated: false,
+              heartbeatMs,
+            })
+            for (;;) {
+              const next = yield* Effect.timeoutOption(PubSub.take(subscription), heartbeatMs)
+              if (Option.isNone(next)) {
+                yield* notify("notifications/events/heartbeat", { cursor: null })
+              } else if (next.value.name === params.name) {
+                yield* notify("notifications/events/event", { ...next.value, cursor: null })
+              }
+            }
+          }),
+        ),
+        { signal: ctx.mcpReq.signal },
+      ).then(() => ({ _meta: meta }))
+    })
+
+    const closed = yield* Deferred.make<boolean>()
+    // MCP's own hook, not a DOM target.
+    Object.assign(mcp.server, {
+      onclose: () => {
+        Deferred.doneUnsafe(closed, Exit.succeed(true))
+      },
+    })
+    yield* Effect.acquireRelease(
       Effect.promise(async () => {
-        await mcp.close()
+        await mcp.connect(transport)
       }),
-  )
-  return Effect.asVoid(Deferred.await(closed))
-})
+      () =>
+        Effect.promise(async () => {
+          await mcp.close()
+        }),
+    )
+    return Effect.asVoid(Deferred.await(closed))
+  })

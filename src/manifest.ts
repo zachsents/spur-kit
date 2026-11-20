@@ -4,16 +4,41 @@ import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
 import { Schema } from "effect"
 
-export const connection = Schema.Struct({
+/** An account a spur needs the user to connect. */
+export interface Connection {
+  /** Whose account: "google", "github". */
+  readonly provider: string
+  readonly scopes?: readonly string[]
+  /** Any number of accounts, not one. */
+  readonly many?: boolean
+}
+
+export const connection: Schema.Codec<Connection> = Schema.Struct({
   /** Whose account: "google", "github". */
   provider: Schema.String,
   scopes: Schema.optionalKey(Schema.Array(Schema.String)),
   /** Any number of accounts, not one. */
   many: Schema.optionalKey(Schema.Boolean),
 })
-export type Connection = typeof connection.Type
+/** What a spur says about itself: the `spur` key of its package.json. */
+export interface Manifest {
+  /** Its name to Switch: its tools are `<name>_<tool>`, its events `<name>.<event>`. */
+  readonly name: string
+  /** Its entry, from the package's folder: run with bun, it serves MCP on stdio. */
+  readonly main: string
+  /** What the machine running it must provide: "macos", "lan:printers". */
+  readonly needs?: readonly string[]
+  /** It runs on every machine with what it needs, one per machine, instead of on one. */
+  readonly every?: boolean
+  /** Accounts it needs the user to connect. */
+  readonly connections?: readonly Connection[]
+  /** The widgets it publishes, by name. */
+  readonly widgets?: readonly string[]
+  /** Where its widgets go until they're placed; made, with `name`, if there's none. */
+  readonly space?: { readonly id: string; readonly name: string }
+}
 
-export const manifest = Schema.Struct({
+export const manifest: Schema.Codec<Manifest> = Schema.Struct({
   /** Its name to Switch: its tools are `<name>_<tool>`, its events `<name>.<event>`. */
   name: Schema.String,
   /** Its entry, from the package's folder: run with bun, it serves MCP on stdio. */
@@ -29,7 +54,6 @@ export const manifest = Schema.Struct({
   /** Where its widgets go until they're placed; made, with `name`, if there's none. */
   space: Schema.optionalKey(Schema.Struct({ id: Schema.String, name: Schema.String })),
 })
-export type Manifest = typeof manifest.Type
 
 const pkg = Schema.Struct({
   name: Schema.String,

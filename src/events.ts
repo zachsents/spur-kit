@@ -1,6 +1,7 @@
 // A spur's events: a type, a version and an Effect Schema for the payload. The brain checks each one
 // against its schema on the way in; a spur checks it before it's sent.
 import { Result, Schema } from "effect"
+import type { Cause } from "effect"
 
 /** A payload schema that needs no services, so it can be checked synchronously. */
 export type Payload<T> = Schema.Codec<T, unknown>
@@ -28,11 +29,19 @@ export interface EventDef {
   readonly check: Check
 }
 
+/** An event type as `defineEvent` makes it: typed, with its schema, decoder and maker. */
+export interface DefinedEvent<T extends string, P> extends EventDef {
+  readonly type: T
+  readonly payload: Payload<P>
+  readonly decode: (encoded: unknown) => P
+  readonly make: (p: P) => Draft
+}
+
 export const defineEvent = <const T extends string, P>(
   type: T,
   version: number,
   payload: Payload<P>,
-) => ({
+): DefinedEvent<T, P> => ({
   type,
   version,
   payload,
@@ -41,9 +50,13 @@ export const defineEvent = <const T extends string, P>(
   make: (p: P): Draft => ({ type, payload: p }),
 })
 
-/** Something refused: a bad payload, an unknown type, or a decision that said no. */
 const TaggedRefusal = Schema.TaggedError
 
-export class Rejected extends TaggedRefusal<Rejected>()("Rejected", {
-  reason: Schema.String,
-}) {}
+const RejectedBase: Schema.Class<
+  Rejected,
+  Schema.TaggedStruct<"Rejected", { readonly reason: Schema.String }>,
+  Cause.YieldableError
+> = TaggedRefusal<Rejected>()("Rejected", { reason: Schema.String })
+
+/** Something refused: a bad payload, an unknown type, or a decision that said no. */
+export class Rejected extends RejectedBase {}
