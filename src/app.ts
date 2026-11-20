@@ -125,6 +125,8 @@ export interface Size {
   readonly preferred?: Units
   /** It may take more than `preferred`: made bigger, or filling room left over. */
   readonly grows?: boolean
+  /** With nothing to show (its view draws only an empty state): a single line, or hidden. */
+  readonly empty?: "line" | "hide"
 }
 
 const count = Schema.Int.check(Schema.isGreaterThan(0))
@@ -136,6 +138,7 @@ export const size: Schema.Codec<Size> = Schema.Struct({
   min: Schema.optionalKey(units),
   preferred: Schema.optionalKey(units),
   grows: Schema.optionalKey(Schema.Boolean),
+  empty: Schema.optionalKey(Schema.Literals(["line", "hide"])),
 })
 
 /** A descriptor only: what it is, where it can show, its view, and the data feeding it, if any. */
