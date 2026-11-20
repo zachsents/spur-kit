@@ -1,7 +1,7 @@
 // Widget helpers: a widget's A2UI messages for one surface, an MCP App inside A2UI's `McpApp`, and an
 // MCP App view as one HTML document with its script bundled in, since a view loads nothing from
-// outside. Call `view` from a module the spur imports as a Bun macro, so it builds when the spur
-// loads, not in the view; a macro can't call Bun.build, so it runs the CLI.
+// outside. `view` runs bun's CLI, so call it as the spur starts: Bun runs no macros from an
+// installed package.
 
 /** Switch's own A2UI catalog: the house components, rendered by each client. */
 export const SWITCH_CATALOG = "https://switch.ax/catalogs/v1/catalog.json"
