@@ -44,9 +44,9 @@ folder), and `"shim": "switchboard"` if it's a Switchboard appendage.
 ## Widgets
 
 A widget's `size` says how it sits in a space's grid, in units (one square cell): its `aspect`
-(`square`, `wide`, `tall` or `auto`), a `ratio` a wide or tall one keeps (`16 / 9`), its `min`
-`preferred` and `max` `{ cols, rows }`, whether it `grows` past preferred, and what it is with nothing to
-show (`empty`: a single `line`, the default, or `hide`).
+(`square`, `wide`, `tall` or `auto`), a `ratio` a wide or tall one keeps (`16 / 9`), its `min`,
+`preferred` and `max` `{ cols, rows }`, whether it `grows` past preferred, and what it is with
+nothing to show (`empty`: a single `line`, the default, or `hide`).
 
 ## Its own log
 
