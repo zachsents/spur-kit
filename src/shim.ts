@@ -2,6 +2,7 @@
 // appendage (sbmcp: events with `_meta["switchboard/record"]`) into a Switch spur, so its tools
 // carry over as they are; `readOnly` keeps only the tools that only look.
 import { VERSION } from "./app.ts"
+import { MESSAGE_SCHEMA, SENDER_SCHEMA } from "./messages.ts"
 
 export type Json = Record<string, unknown>
 
@@ -57,11 +58,17 @@ const RECORD_SCHEMA = {
     about: { type: "array", items: { type: "string" } },
     refs: { type: "array", items: { type: "string" } },
     importance: { type: "number" },
+    sender: SENDER_SCHEMA,
+    message: MESSAGE_SCHEMA,
   },
   required: ["kind", "stream", "data"],
 }
 
-const ENVELOPE = ["about", "refs", "importance"] as const
+/** A channel's message (Claude Code's channels, `notifications/claude/channel`), as an event. */
+const CHANNEL = "notifications/claude/channel"
+const CHANNEL_EVENT = "message"
+
+const ENVELOPE = ["about", "refs", "importance", "sender", "message"] as const
 
 /**
  * A Switchboard appendage as a spur. Its event types gain the spur's prefix (`pr` becomes
@@ -112,11 +119,58 @@ export const switchboard = (spur: string): Filter => {
     }
   }
 
+  /**
+   * A channel's message: one of the user's own front doors (a bot only they can message), so its
+   * sender is them. Its meta's `chat_id`, `message_id`, `user` and `ts` are the channel plugins'.
+   */
+  const fromChannel = (m: Json) => {
+    const params = field(m, "params")
+    const meta = field(params, "meta")
+    const text = (k: string) => (typeof meta[k] === "string" ? meta[k] : "")
+    const id =
+      text("message_id") === "" ? crypto.randomUUID() : `${text("chat_id")}:${text("message_id")}`
+    const ts = text("ts") === "" ? new Date().toISOString() : text("ts")
+    const content = typeof params.content === "string" ? params.content : ""
+    return occurrence({
+      name: CHANNEL_EVENT,
+      eventId: id,
+      timestamp: ts,
+      data: { content, meta },
+      _meta: {
+        [RECORD]: {
+          sender: { handle: text("user") || text("user_id"), via: spur, me: true },
+          message: {
+            id: `${spur}:${id}`,
+            conversation: `${spur}:${text("chat_id")}`,
+            text: content,
+            at: Date.parse(ts),
+            channel: spur,
+          },
+        },
+      },
+    })
+  }
+
+  // A channel server has no events of its own: its messages become one.
+  let channel = false
+  const channelEvent = (): Json => {
+    placed.set(CHANNEL_EVENT, { kind: "message", stream: `comms/${spur}` })
+    return {
+      name: `${prefix}${CHANNEL_EVENT}`,
+      delivery: ["push"],
+      payloadSchema: RECORD_SCHEMA,
+      _meta: { [VERSION]: 1 },
+    }
+  }
+
   return {
     inbound: (m) => {
       requests.note(m)
       const params = field(m, "params")
       const { name } = params
+      if (channel && m.method === "events/stream" && name === `${prefix}${CHANNEL_EVENT}`) {
+        return { forward: null, answer: { jsonrpc: "2.0", id: m.id, result: {} } }
+      }
       if (
         (m.method === "events/stream" || m.method === "events/poll") &&
         typeof name === "string" &&
@@ -127,12 +181,25 @@ export const switchboard = (spur: string): Filter => {
       return pass(m)
     },
     outbound: (m) => {
-      if (requests.take(m) === "events/list" && isJson(m.result)) {
-        const events = list(m.result.events).filter(isJson).map(renamed)
-        return { ...m, result: { ...m.result, events } }
+      const answers = requests.take(m)
+      if ((answers === "initialize" || answers === "server/discover") && isJson(m.result)) {
+        const experimental = field(field(m.result, "capabilities"), "experimental")
+        channel = isJson(experimental["claude/channel"])
+        return m
+      }
+      if (answers === "events/list") {
+        const listed = isJson(m.result) ? list(m.result.events).filter(isJson).map(renamed) : []
+        if (!channel && !isJson(m.result)) {
+          return m
+        }
+        const events = channel ? [...listed, channelEvent()] : listed
+        return { jsonrpc: "2.0", id: m.id, result: { ...field(m, "result"), events } }
       }
       if (m.method === "notifications/events/event") {
         return { ...m, params: occurrence(field(m, "params")) }
+      }
+      if (m.method === CHANNEL) {
+        return { jsonrpc: "2.0", method: "notifications/events/event", params: fromChannel(m) }
       }
       return m
     },

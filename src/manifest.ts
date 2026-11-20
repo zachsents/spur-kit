@@ -11,6 +11,13 @@ export interface Need {
   readonly scopes: readonly string[]
   /** Any number of accounts, not one. */
   readonly multiple: boolean
+  /**
+   * How it's connected: OAuth (the default, for a provider Switch knows), a key the user gives
+   * (an API key, a bot token), or a session the spur holds itself (a signed-in browser).
+   */
+  readonly kind?: "oauth" | "key" | "session"
+  /** Its name to the user, for a provider Switch doesn't know. */
+  readonly label?: string
   /** The Keychain service it kept these accounts in before connections: moved in once, then emptied. */
   readonly legacy?: string
 }
@@ -19,6 +26,8 @@ export const need: Schema.Codec<Need> = Schema.Struct({
   provider: Schema.String,
   scopes: Schema.Array(Schema.String),
   multiple: Schema.Boolean,
+  kind: Schema.optionalKey(Schema.Literals(["oauth", "key", "session"])),
+  label: Schema.optionalKey(Schema.String),
   legacy: Schema.optionalKey(Schema.String),
 })
 /** What a spur says about itself: the `spur` key of its package.json. */

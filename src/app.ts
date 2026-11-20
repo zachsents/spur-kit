@@ -34,6 +34,12 @@ export const SUBSCRIPTION = "io.modelcontextprotocol/subscriptionId"
 export const VERSION = "ax.switch/version"
 /** The connections an app needs, in its server capabilities' extensions. */
 export const CONNECTIONS = "ax.switch/connections"
+/**
+ * What a spur reaches beyond itself, in its handshake: other spurs' tools it calls
+ * (`switch/call`) and the brain's event types it follows (`switch/follow`), each a name or a
+ * prefix ending in `*`. Nothing else is answered.
+ */
+export const REACHES = "ax.switch/reaches"
 /** A widget's descriptor, in its `ui://` resource's `resources/list` entry. */
 export const WIDGET = "ax.switch/widget"
 /** What a widget's resource holds: a JSON array of A2UI messages. */
@@ -48,6 +54,8 @@ export interface Tool<R> {
   readonly name: string
   readonly description: string
   readonly readOnly: boolean
+  /** It sends something out in the user's name: the Outbound gate reads it first. */
+  readonly speaks: boolean
   /** Only the user's clients call it, never the agent (MCP Apps' `visibility: ["app"]`). */
   readonly appOnly: boolean
   readonly input: StandardSchemaWithJSON | undefined
@@ -61,6 +69,8 @@ interface ToolOptions {
   readonly description: string
   /** It only looks, changing nothing. */
   readonly readOnly?: boolean
+  /** It sends something out in the user's name (a text, an email, a call). */
+  readonly speaks?: boolean
   /** Only the user's clients call it, never the agent. */
   readonly appOnly?: boolean
 }
@@ -86,6 +96,7 @@ export function tool<R>(
     name,
     description: options.description,
     readOnly: options.readOnly === true,
+    speaks: options.speaks === true,
     appOnly: options.appOnly === true,
     input: input && standard(input),
     run: input ? (raw) => Effect.flatMap(Schema.decodeUnknownEffect(input)(raw), run) : () => run(),
@@ -349,7 +360,7 @@ export const serve: <R>(
       const fed = app.widgets.find((w) => w.tool === t.name)
       const config = {
         description: t.description,
-        annotations: { readOnlyHint: t.readOnly },
+        annotations: { readOnlyHint: t.readOnly, ...(t.speaks && { speaksForPerson: true }) },
         _meta: {
           ui: {
             ...(fed && { resourceUri: fed.resource }),
