@@ -70,4 +70,17 @@ export { serveStdio } from "./stdio.ts"
 export { BACKED_OUT_MS, BackedOut, Dwelled, left, Switched, uiEvents, Viewed } from "./ui.ts"
 export type { Moved, Seen, Stayed } from "./ui.ts"
 export { isSender, MESSAGE_SCHEMA, messageOf, SENDER_SCHEMA } from "./messages.ts"
+export {
+  asked,
+  heavy,
+  PERSON_ASKED,
+  PERSONAL,
+  personal,
+  personAsked,
+  provides,
+  refusal,
+  simpleCommands,
+  standIns,
+} from "./laptop.ts"
+export type { Reader } from "./laptop.ts"
 export type { Message, Received, Sender } from "./messages.ts"
