@@ -7,7 +7,7 @@ import type { App } from "./app.ts"
 
 /** Serves `app` on stdio with `layer`, its services (`Layer.empty` for none), until stdin closes. */
 export const serveStdio = async <R, E>(app: App<R>, layer: Layer.Layer<R, E, AppEvents>) =>
-  Effect.runPromise(
+  await Effect.runPromise(
     Effect.scoped(Effect.flatten(serve(app, new StdioServerTransport()))).pipe(
       Effect.provide(Layer.provideMerge(layer, AppEvents.layer(app))),
     ),

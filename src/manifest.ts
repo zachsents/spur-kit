@@ -20,6 +20,8 @@ export const manifest = Schema.Struct({
   main: Schema.String,
   /** What the machine running it must provide: "macos", "lan:printers". */
   needs: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** It runs on every machine with what it needs, one per machine, instead of on one. */
+  every: Schema.optionalKey(Schema.Boolean),
   /** Accounts it needs the user to connect. */
   connections: Schema.optionalKey(Schema.Array(connection)),
   /** The widgets it publishes, by name. */
