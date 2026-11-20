@@ -2,6 +2,7 @@ export {
   A2UI_MIME_TYPE,
   answer,
   AppEvents,
+  CONNECTIONS,
   defineApp,
   EVENTS,
   serve,
@@ -26,8 +27,8 @@ export type {
 export { BASIC_CATALOG, HOME, MCP_CATALOG, mcpApp, surface, SWITCH_CATALOG, view } from "./a2ui.ts"
 export { checker, defineEvent, Rejected } from "./events.ts"
 export type { Check, DefinedEvent, Draft, EventDef, Payload } from "./events.ts"
-export { connection, manifest, readManifest } from "./manifest.ts"
-export type { Connection, Manifest } from "./manifest.ts"
+export { manifest, need, readManifest } from "./manifest.ts"
+export type { Manifest, Need } from "./manifest.ts"
 export { chain, isJson, readOnly, switchboard } from "./shim.ts"
 export type { Filter, Json } from "./shim.ts"
 export { serveStdio } from "./stdio.ts"

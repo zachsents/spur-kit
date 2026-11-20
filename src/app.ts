@@ -23,6 +23,7 @@ import {
 import type { Scope } from "effect"
 
 import { Rejected } from "./events.ts"
+import type { Need } from "./manifest.ts"
 import type { Draft, EventDef } from "./events.ts"
 import { uiEvents } from "./ui.ts"
 
@@ -30,6 +31,8 @@ export const EVENTS = "io.modelcontextprotocol/events"
 export const SUBSCRIPTION = "io.modelcontextprotocol/subscriptionId"
 /** An event type's version, in its `events/list` entry. */
 export const VERSION = "ax.switch/version"
+/** The connections an app needs, in its server capabilities' extensions. */
+export const CONNECTIONS = "ax.switch/connections"
 /** A widget's descriptor, in its `ui://` resource's `resources/list` entry. */
 export const WIDGET = "ax.switch/widget"
 /** What a widget's resource holds: a JSON array of A2UI messages. */
@@ -44,6 +47,8 @@ export interface Tool<R> {
   readonly name: string
   readonly description: string
   readonly readOnly: boolean
+  /** Only the user's clients call it, never the agent (MCP Apps' `visibility: ["app"]`). */
+  readonly appOnly: boolean
   readonly input: StandardSchemaWithJSON | undefined
   readonly run: (input: unknown) => Effect.Effect<unknown, unknown, R>
 }
@@ -55,6 +60,8 @@ interface ToolOptions {
   readonly description: string
   /** It only looks, changing nothing. */
   readonly readOnly?: boolean
+  /** Only the user's clients call it, never the agent. */
+  readonly appOnly?: boolean
 }
 
 /** A tool fails with a `Rejected`, or any error whose message is what went wrong. */
@@ -78,6 +85,7 @@ export function tool<R>(
     name,
     description: options.description,
     readOnly: options.readOnly === true,
+    appOnly: options.appOnly === true,
     input: input && standard(input),
     run: input ? (raw) => Effect.flatMap(Schema.decodeUnknownEffect(input)(raw), run) : () => run(),
   }
@@ -127,6 +135,7 @@ export interface App<R = never> {
   readonly name: string
   readonly version: string
   readonly instructions?: string
+  readonly connections: readonly Need[]
   readonly tools: readonly Tool<R>[]
   /** Its own events plus the UI analytics family, which every app publishes. */
   readonly events: readonly AppEvent[]
@@ -137,6 +146,7 @@ export const defineApp = <R = never>(app: {
   readonly name: string
   readonly version: string
   readonly instructions?: string
+  readonly connections?: readonly Need[]
   readonly tools: readonly Tool<R>[]
   readonly events?: readonly AppEvent[]
   readonly widgets?: readonly WidgetDef[]
@@ -157,7 +167,7 @@ export const defineApp = <R = never>(app: {
       throw new Error(`Widget ${w.name} needs a read-only tool ${w.tool}`)
     }
   }
-  return { ...app, events: [...events, ...uiEvents], widgets }
+  return { ...app, connections: app.connections ?? [], events: [...events, ...uiEvents], widgets }
 }
 
 /** One MCP Events occurrence. */
@@ -319,7 +329,14 @@ export const serve: <R>(
         capabilities: {
           tools: {},
           resources: {},
-          extensions: { [EVENTS]: { listChanged: false } },
+          extensions: {
+            [EVENTS]: { listChanged: false },
+            ...(app.connections.length > 0 && {
+              [CONNECTIONS]: {
+                needs: app.connections.map((n) => ({ ...n, scopes: [...n.scopes] })),
+              },
+            }),
+          },
         },
         ...(app.instructions === undefined ? {} : { instructions: app.instructions }),
       },
@@ -332,7 +349,12 @@ export const serve: <R>(
       const config = {
         description: t.description,
         annotations: { readOnlyHint: t.readOnly },
-        ...(fed && { _meta: { ui: { resourceUri: fed.resource } } }),
+        _meta: {
+          ui: {
+            ...(fed && { resourceUri: fed.resource }),
+            ...(t.appOnly && { visibility: ["app"] }),
+          },
+        },
       }
       const call = async (input: unknown) =>
         await run(

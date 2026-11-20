@@ -32,7 +32,7 @@ Its `package.json` carries the manifest:
   "name": "hello",
   "main": "src/main.ts",
   "needs": ["macos"],
-  "connections": [{ "provider": "google", "many": true }],
+  "connections": [{ "provider": "google", "scopes": ["…"], "multiple": true }],
   "widgets": ["face"],
   "space": { "id": "home", "name": "Home" }
 }

@@ -4,21 +4,22 @@ import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
 import { Schema } from "effect"
 
-/** An account a spur needs the user to connect. */
-export interface Connection {
+/** An account a spur needs the user to connect: its provider, the scopes, one or many. */
+export interface Need {
   /** Whose account: "google", "github". */
   readonly provider: string
-  readonly scopes?: readonly string[]
+  readonly scopes: readonly string[]
   /** Any number of accounts, not one. */
-  readonly many?: boolean
+  readonly multiple: boolean
+  /** The Keychain service it kept these accounts in before connections: moved in once, then emptied. */
+  readonly legacy?: string
 }
 
-export const connection: Schema.Codec<Connection> = Schema.Struct({
-  /** Whose account: "google", "github". */
+export const need: Schema.Codec<Need> = Schema.Struct({
   provider: Schema.String,
-  scopes: Schema.optionalKey(Schema.Array(Schema.String)),
-  /** Any number of accounts, not one. */
-  many: Schema.optionalKey(Schema.Boolean),
+  scopes: Schema.Array(Schema.String),
+  multiple: Schema.Boolean,
+  legacy: Schema.optionalKey(Schema.String),
 })
 /** What a spur says about itself: the `spur` key of its package.json. */
 export interface Manifest {
@@ -31,7 +32,7 @@ export interface Manifest {
   /** It runs on every machine with what it needs, one per machine, instead of on one. */
   readonly every?: boolean
   /** Accounts it needs the user to connect. */
-  readonly connections?: readonly Connection[]
+  readonly connections?: readonly Need[]
   /** The widgets it publishes, by name. */
   readonly widgets?: readonly string[]
   /** Where its widgets go until they're placed; made, with `name`, if there's none. */
@@ -48,7 +49,7 @@ export const manifest: Schema.Codec<Manifest> = Schema.Struct({
   /** It runs on every machine with what it needs, one per machine, instead of on one. */
   every: Schema.optionalKey(Schema.Boolean),
   /** Accounts it needs the user to connect. */
-  connections: Schema.optionalKey(Schema.Array(connection)),
+  connections: Schema.optionalKey(Schema.Array(need)),
   /** The widgets it publishes, by name. */
   widgets: Schema.optionalKey(Schema.Array(Schema.String)),
   /** Where its widgets go until they're placed; made, with `name`, if there's none. */
