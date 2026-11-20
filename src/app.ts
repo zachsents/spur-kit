@@ -107,6 +107,37 @@ export function tool<R>(
 export type Surface = "chat" | "space" | "liveActivity" | "wallet"
 const surface = Schema.Literals(["chat", "space", "liveActivity", "wallet"])
 
+/** A widget's shape: kept square, wider than tall, taller than wide, or as its content needs. */
+export type Aspect = "square" | "wide" | "tall" | "auto"
+
+/** A size in grid units: a unit is one square cell of the host's grid. */
+export interface Units {
+  readonly cols: number
+  readonly rows: number
+}
+
+/** How a widget sits in a space's grid. */
+export interface Size {
+  readonly aspect: Aspect
+  /** The width over height a wide or tall one keeps: 16 / 9. */
+  readonly ratio?: number
+  readonly min?: Units
+  readonly preferred?: Units
+  /** It may take more than `preferred`: made bigger, or filling room left over. */
+  readonly grows?: boolean
+}
+
+const count = Schema.Int.check(Schema.isGreaterThan(0))
+const units = Schema.Struct({ cols: count, rows: count })
+
+export const size: Schema.Codec<Size> = Schema.Struct({
+  aspect: Schema.Literals(["square", "wide", "tall", "auto"]),
+  ratio: Schema.optionalKey(Schema.Finite.check(Schema.isGreaterThan(0))),
+  min: Schema.optionalKey(units),
+  preferred: Schema.optionalKey(units),
+  grows: Schema.optionalKey(Schema.Boolean),
+})
+
 /** A descriptor only: what it is, where it can show, its view, and the data feeding it, if any. */
 export interface Widget {
   readonly name: string
@@ -120,6 +151,8 @@ export interface Widget {
   /** The read-only tool whose structured result is its data model, and the events that refresh it. */
   readonly tool?: string
   readonly refresh?: readonly string[]
+  /** How it sits in a space's grid; none is `auto`. */
+  readonly size?: Size
 }
 
 export const widget: Schema.Codec<Widget> = Schema.Struct({
@@ -134,6 +167,8 @@ export const widget: Schema.Codec<Widget> = Schema.Struct({
   /** The read-only tool whose structured result is its data model, and the events that refresh it. */
   tool: Schema.optionalKey(Schema.String),
   refresh: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** How it sits in a space's grid; none is `auto`. */
+  size: Schema.optionalKey(size),
 })
 
 /** A widget as its app defines it: the descriptor, and its A2UI messages (one surface, any id). */

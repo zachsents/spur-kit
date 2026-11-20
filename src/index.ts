@@ -7,6 +7,7 @@ export {
   defineApp,
   EVENTS,
   serve,
+  size,
   SUBSCRIPTION,
   tool,
   VERSION,
@@ -16,12 +17,15 @@ export {
 export type {
   Answer,
   App,
+  Aspect,
   AppEvent,
   AppEventsService,
   AppEventsShape,
   Occurrence,
+  Size,
   Surface,
   Tool,
+  Units,
   Widget,
   WidgetDef,
 } from "./app.ts"

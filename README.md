@@ -41,6 +41,12 @@ Its `package.json` carries the manifest:
 A spur that isn't TypeScript gives `command` instead of `main` (its `./` paths from the package's
 folder), and `"shim": "switchboard"` if it's a Switchboard appendage.
 
+## Widgets
+
+A widget's `size` says how it sits in a space's grid, in units (one square cell): its `aspect`
+(`square`, `wide`, `tall` or `auto`), a `ratio` a wide or tall one keeps (`16 / 9`), its `min`
+and `preferred` `{ cols, rows }`, and whether it `grows` past that.
+
 ## Its own log
 
 `Log.layer({ path, events, projections, commands })` keeps a spur's events on its own SQLite file,
