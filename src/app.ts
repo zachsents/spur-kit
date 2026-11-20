@@ -25,6 +25,7 @@ import type { Scope } from "effect"
 import { Rejected } from "./events.ts"
 import type { Need } from "./manifest.ts"
 import type { Draft, EventDef } from "./events.ts"
+import { Peer } from "./models.ts"
 import { uiEvents } from "./ui.ts"
 
 export const EVENTS = "io.modelcontextprotocol/events"
@@ -434,10 +435,20 @@ export const serve: <R>(
     })
 
     const closed = yield* Deferred.make<boolean>()
-    // MCP's own hook, not a DOM target.
+    // Models through the client, once it's connected. A client that doesn't answer them (no
+    // `ax.switch/models`) fails each request, and the call with it.
+    const peer = yield* Effect.serviceOption(Peer)
+    const send = async (method: string, params: Readonly<Record<string, unknown>>) =>
+      await mcp.server.request({ method, params: { ...params } }, anything)
+    // MCP's own hooks, not DOM targets.
     Object.assign(mcp.server, {
       onclose: () => {
         Deferred.doneUnsafe(closed, Exit.succeed(true))
+      },
+      oninitialized: () => {
+        if (Option.isSome(peer)) {
+          peer.value.attach(send)
+        }
       },
     })
     yield* Effect.acquireRelease(

@@ -41,4 +41,18 @@ Its `package.json` carries the manifest:
 A spur that isn't TypeScript gives `command` instead of `main` (its `./` paths from the package's
 folder), and `"shim": "switchboard"` if it's a Switchboard appendage.
 
+## Its own log
+
+`Log.layer({ path, events, projections, commands })` keeps a spur's events on its own SQLite file,
+with read models over them (`defineCommand`, `on`, `Projection`): `dispatch` a command, `read` the
+projections, follow `changes`.
+
+## Models
+
+A spur holds no model keys. `Models.layer` asks the host that runs it, over MCP, which answers
+with the user's profile: `decide(input, questions, role?)` picks among choices with
+probabilities, `complete(role, system, prompt)` writes text. The host declares the
+`ax.switch/models` client extension and answers `models/decide` and `models/complete`; without
+one, each call fails with `ModelError`.
+
 Switch installs it from a git URL or package name: `spurs_install`, or Spurs in the desktop.

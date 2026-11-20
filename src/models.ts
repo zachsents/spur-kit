@@ -1,0 +1,162 @@
+// Models for a spur, through the host that runs it: a spur holds no model keys. Its requests go to
+// the client over MCP, under the `ax.switch/models` extension, and the core answers them with the
+// user's own profile: `models/decide` picks among choices, `models/complete` writes text.
+import { Context, Deferred, Effect, Layer, Schema } from "effect"
+import type { Cause } from "effect"
+
+/** The client capability extension a host declares when it answers model requests. */
+export const MODELS = "ax.switch/models"
+
+/** A role in the user's profile, which says what model runs it. */
+export type Role = "turn" | "triage" | "gate" | "decision" | "browse"
+
+export interface Choice {
+  readonly value: string
+  readonly description?: string
+}
+
+/** Pick one of `choices`. */
+export interface Question {
+  readonly instructions: string
+  readonly choices: readonly Choice[]
+}
+
+/** `stable` goes first and is the same across many calls, so the provider can cache it. */
+export interface Input {
+  readonly stable: string
+  readonly item: string
+}
+
+export interface Answer {
+  readonly choice: string
+  /** Every choice's probability. */
+  readonly probabilities: Readonly<Record<string, number>>
+}
+
+export interface Decision {
+  readonly answers: Readonly<Record<string, Answer>>
+  readonly ms: number
+  /** Dollars. */
+  readonly cost: number
+}
+
+export interface Completion {
+  readonly text: string
+  readonly ms: number
+  readonly cost: number
+}
+
+const answer = Schema.Struct({
+  choice: Schema.String,
+  probabilities: Schema.Record(Schema.String, Schema.Number),
+})
+const decision = Schema.Struct({
+  answers: Schema.Record(Schema.String, answer),
+  ms: Schema.Number,
+  cost: Schema.Number,
+})
+const completion = Schema.Struct({ text: Schema.String, ms: Schema.Number, cost: Schema.Number })
+
+const TaggedFailure = Schema.TaggedError
+
+const ModelErrorBase: Schema.Class<
+  ModelError,
+  Schema.TaggedStruct<"ModelError", { readonly message: Schema.String }>,
+  Cause.YieldableError
+> = TaggedFailure<ModelError>()("ModelError", { message: Schema.String })
+
+/** No host to ask, or the host's model failed. */
+export class ModelError extends ModelErrorBase {}
+
+export interface ModelsShape {
+  /** Asks the role's model every question about one input, in one call. */
+  readonly decide: (
+    input: Input,
+    questions: Readonly<Record<string, Question>>,
+    role?: Role,
+  ) => Effect.Effect<Decision, ModelError>
+  readonly complete: (
+    role: Role,
+    system: string,
+    prompt: string,
+  ) => Effect.Effect<Completion, ModelError>
+}
+
+/** The `Models` service's identifier, as a requirement. */
+export interface ModelsService {
+  readonly Models: unique symbol
+}
+
+/** Sends one request to the client and decodes its result. */
+export type Send = (method: string, params: Readonly<Record<string, unknown>>) => Promise<unknown>
+
+/** Where `serve` hands over its connection, once the client has said what it offers. */
+export interface PeerShape {
+  /** `null`: the client answers no model requests. */
+  readonly attach: (send: Send | null) => void
+}
+
+/** The `Peer` service's identifier, as a requirement. */
+export interface PeerService {
+  readonly Peer: unique symbol
+}
+
+export const Peer: Context.Service<PeerService, PeerShape> = Context.Service<
+  PeerService,
+  PeerShape
+>("spur-kit/Peer")
+
+/** How long a call waits for the client to connect before it gives up. */
+const CONNECT_MS = 30_000
+
+const failed = (e: unknown) =>
+  new ModelError({ message: e instanceof Error ? e.message : String(e) })
+
+const modelsKey: Context.Service<ModelsService, ModelsShape> = Context.Service<
+  ModelsService,
+  ModelsShape
+>("spur-kit/Models")
+
+const modelsLayer: Layer.Layer<ModelsService | PeerService> = Layer.effectContext(
+  Effect.gen(function* making() {
+    const ready = yield* Deferred.make<Send | null>()
+    const peer: PeerShape = {
+      attach: (send) => {
+        Deferred.doneUnsafe(ready, Effect.succeed(send))
+      },
+    }
+    const ask = <A>(
+      method: string,
+      params: Readonly<Record<string, unknown>>,
+      result: Schema.Codec<A, unknown>,
+    ) =>
+      Effect.gen(function* asking() {
+        const send = yield* Deferred.await(ready).pipe(
+          Effect.timeoutOrElse({
+            duration: CONNECT_MS,
+            orElse: () => Effect.fail(new ModelError({ message: "No host connected" })),
+          }),
+        )
+        if (send === null) {
+          return yield* Effect.fail(new ModelError({ message: "The host offers no models" }))
+        }
+        const raw = yield* Effect.tryPromise({
+          try: async () => await send(method, params),
+          catch: failed,
+        })
+        return yield* Schema.decodeUnknownEffect(result)(raw).pipe(Effect.mapError(failed))
+      })
+    const models: ModelsShape = {
+      decide: (input, questions, role = "decision") =>
+        ask("models/decide", { input, questions, role }, decision),
+      complete: (role, system, prompt) =>
+        ask("models/complete", { role, system, prompt }, completion),
+    }
+    return Context.make(modelsKey, models).pipe(Context.add(Peer, peer))
+  }),
+)
+
+/** Models through the host: `serve` connects it. */
+export const Models: Context.Service<ModelsService, ModelsShape> & {
+  readonly layer: typeof modelsLayer
+} = Object.assign(modelsKey, { layer: modelsLayer })
