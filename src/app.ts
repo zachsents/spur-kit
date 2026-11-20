@@ -123,7 +123,9 @@ export interface Size {
   readonly ratio?: number
   readonly min?: Units
   readonly preferred?: Units
-  /** It may take more than `preferred`: made bigger, or filling room left over. */
+  /** The most it takes, however much room there is: a watch face stays watch-sized. */
+  readonly max?: Units
+  /** It may take more than `preferred`, up to `max`: made bigger, or filling room left over. */
   readonly grows?: boolean
   /** With nothing to show (its view draws only an empty state): a single line, or hidden. */
   readonly empty?: "line" | "hide"
@@ -137,6 +139,7 @@ export const size: Schema.Codec<Size> = Schema.Struct({
   ratio: Schema.optionalKey(Schema.Finite.check(Schema.isGreaterThan(0))),
   min: Schema.optionalKey(units),
   preferred: Schema.optionalKey(units),
+  max: Schema.optionalKey(units),
   grows: Schema.optionalKey(Schema.Boolean),
   empty: Schema.optionalKey(Schema.Literals(["line", "hide"])),
 })
