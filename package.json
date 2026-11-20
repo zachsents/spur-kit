@@ -1,0 +1,36 @@
+{
+  "name": "spur-kit",
+  "version": "0.1.0",
+  "description": "The spur convention for Switch: tools, events, widgets and a manifest, served as MCP.",
+  "license": "MIT",
+  "repository": "github:zachsents/spur-kit",
+  "files": [
+    "src"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "lint": "oxlint --type-aware --fix --fix-suggestions",
+    "format": "oxfmt --write .",
+    "fix": "bun run lint && bun run format",
+    "check": "bun run typecheck && bun run fix"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.4.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "@typescript/native-preview": "^7.0.0-dev.20260707.2",
+    "effect": "^4.1.4",
+    "oxfmt": "^0.79.0",
+    "oxlint": "^1.94.0",
+    "oxlint-tsgolint": "^7.0.2007",
+    "ultracite": "^8.3.0"
+  },
+  "peerDependencies": {
+    "effect": "^4.1.4"
+  }
+}

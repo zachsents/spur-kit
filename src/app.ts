@@ -1,0 +1,399 @@
+// The app convention: tools as MCP tools, events as MCP Events (SEP-3415, push delivery) with an
+// Effect Schema and a version, widgets as A2UI (v1.0): `ui://` resources holding A2UI messages, each
+// listed with its descriptor. Custom drawing is an MCP App inside, in A2UI's `McpApp` component.
+import { randomUUID } from "node:crypto"
+import { McpServer, ProtocolError } from "@modelcontextprotocol/server"
+import type {
+  CallToolResult,
+  StandardSchemaWithJSON,
+  Transport,
+} from "@modelcontextprotocol/server"
+import {
+  Context,
+  Deferred,
+  Effect,
+  Exit,
+  FiberSet,
+  Layer,
+  Option,
+  PubSub,
+  Result,
+  Schema,
+} from "effect"
+import type { Scope } from "effect"
+
+import { Rejected } from "./events.ts"
+import type { Draft, EventDef } from "./events.ts"
+import { uiEvents } from "./ui.ts"
+
+export const EVENTS = "io.modelcontextprotocol/events"
+export const SUBSCRIPTION = "io.modelcontextprotocol/subscriptionId"
+/** An event type's version, in its `events/list` entry. */
+export const VERSION = "ax.switch/version"
+/** A widget's descriptor, in its `ui://` resource's `resources/list` entry. */
+export const WIDGET = "ax.switch/widget"
+/** What a widget's resource holds: a JSON array of A2UI messages. */
+export const A2UI_MIME_TYPE = "application/a2ui+json"
+
+/** A brain event an app publishes: `defineEvent`'s result. */
+export interface AppEvent extends EventDef {
+  readonly payload: Schema.Top
+}
+
+export interface Tool<R> {
+  readonly name: string
+  readonly description: string
+  readonly readOnly: boolean
+  readonly input: StandardSchemaWithJSON | undefined
+  readonly run: (input: unknown) => Effect.Effect<unknown, unknown, R>
+}
+
+const standard = (schema: Schema.Codec<unknown, unknown>): StandardSchemaWithJSON =>
+  Schema.toStandardJSONSchemaV1(Schema.toStandardSchemaV1(schema))
+
+interface ToolOptions {
+  readonly description: string
+  /** It only looks, changing nothing. */
+  readonly readOnly?: boolean
+}
+
+/** A tool fails with a `Rejected`, or any error whose message is what went wrong. */
+export function tool<I, A, E, R>(
+  name: string,
+  options: ToolOptions & { readonly input: Schema.Codec<I, unknown> },
+  run: (input: I) => Effect.Effect<A, E, R>,
+): Tool<R>
+export function tool<A, E, R>(
+  name: string,
+  options: ToolOptions,
+  run: () => Effect.Effect<A, E, R>,
+): Tool<R>
+export function tool<R>(
+  name: string,
+  options: ToolOptions & { readonly input?: Schema.Codec<unknown, unknown> },
+  run: (input?: unknown) => Effect.Effect<unknown, unknown, R>,
+): Tool<R> {
+  const { input } = options
+  return {
+    name,
+    description: options.description,
+    readOnly: options.readOnly === true,
+    input: input && standard(input),
+    run: input ? (raw) => Effect.flatMap(Schema.decodeUnknownEffect(input)(raw), run) : () => run(),
+  }
+}
+
+const surface = Schema.Literals(["chat", "space", "liveActivity", "wallet"])
+export type Surface = typeof surface.Type
+
+/** A descriptor only: what it is, where it can show, its view, and the data feeding it, if any. */
+export const widget = Schema.Struct({
+  name: Schema.String,
+  title: Schema.String,
+  surfaces: Schema.Array(surface),
+  /** Its content: a `ui://` resource of A2UI messages. */
+  resource: Schema.String,
+  /** The space it goes in until it's placed, if any; made, with `spaceName`, if there's none. */
+  space: Schema.optionalKey(Schema.String),
+  spaceName: Schema.optionalKey(Schema.String),
+  /** The read-only tool whose structured result is its data model, and the events that refresh it. */
+  tool: Schema.optionalKey(Schema.String),
+  refresh: Schema.optionalKey(Schema.Array(Schema.String)),
+})
+export type Widget = typeof widget.Type
+
+/** A widget as its app defines it: the descriptor, and its A2UI messages (one surface, any id). */
+export interface WidgetDef extends Widget {
+  readonly a2ui: () => readonly unknown[] | Promise<readonly unknown[]>
+}
+
+const descriptor = ({ a2ui: _, ...w }: WidgetDef): Widget => w
+
+export interface App<R = never> {
+  readonly name: string
+  readonly version: string
+  readonly instructions?: string
+  readonly tools: readonly Tool<R>[]
+  /** Its own events plus the UI analytics family, which every app publishes. */
+  readonly events: readonly AppEvent[]
+  readonly widgets: readonly WidgetDef[]
+}
+
+export const defineApp = <R = never>(app: {
+  readonly name: string
+  readonly version: string
+  readonly instructions?: string
+  readonly tools: readonly Tool<R>[]
+  readonly events?: readonly AppEvent[]
+  readonly widgets?: readonly WidgetDef[]
+}): App<R> => {
+  const events = app.events ?? []
+  for (const e of events) {
+    if (!e.type.startsWith(`${app.name}.`)) {
+      throw new Error(`${app.name}'s event ${e.type} must start with "${app.name}."`)
+    }
+  }
+  const widgets = app.widgets ?? []
+  for (const w of widgets) {
+    if (!w.resource.startsWith("ui://")) {
+      throw new Error(`Widget ${w.name}'s view must be a ui:// resource`)
+    }
+    const fed = app.tools.find((t) => t.name === w.tool)
+    if (w.tool !== undefined && fed?.readOnly !== true) {
+      throw new Error(`Widget ${w.name} needs a read-only tool ${w.tool}`)
+    }
+  }
+  return { ...app, events: [...events, ...uiEvents], widgets }
+}
+
+/** One MCP Events occurrence. */
+export interface Occurrence {
+  readonly eventId: string
+  readonly name: string
+  readonly timestamp: string
+  readonly data: unknown
+}
+
+const BUFFERED = 1000
+
+/** How an app emits its events, to whoever subscribed (the gateway). */
+export class AppEvents extends Context.Service<
+  AppEvents,
+  {
+    readonly emit: (draft: Draft) => Effect.Effect<void, Rejected>
+    readonly subscribe: (
+      name: string,
+    ) => Effect.Effect<PubSub.Subscription<Occurrence>, never, Scope.Scope>
+  }
+>()("switch/AppEvents") {
+  static readonly layer = (app: { readonly events: readonly AppEvent[] }) =>
+    Layer.effect(
+      AppEvents,
+      Effect.gen(function* making() {
+        const defs = new Map(app.events.map((e) => [e.type, e]))
+        const live = yield* PubSub.unbounded<Occurrence>()
+        const listeners = new Map<string, number>()
+        // Emitted before anyone subscribed: kept for the first subscriber, as sbmcp does.
+        const waiting = new Map<string, Occurrence[]>()
+
+        const emit = (draft: Draft) =>
+          Effect.suspend(() => {
+            const def = defs.get(draft.type)
+            if (!def) {
+              return Effect.fail(new Rejected({ reason: `Unknown type ${draft.type}` }))
+            }
+            const checked = def.check(draft.payload)
+            if (Result.isFailure(checked)) {
+              return Effect.fail(new Rejected({ reason: `${draft.type}: ${checked.failure}` }))
+            }
+            const occurrence: Occurrence = {
+              eventId: randomUUID(),
+              name: draft.type,
+              timestamp: new Date().toISOString(),
+              data: checked.success,
+            }
+            if ((listeners.get(draft.type) ?? 0) > 0) {
+              return Effect.asVoid(PubSub.publish(live, occurrence))
+            }
+            const held = waiting.get(draft.type) ?? []
+            held.push(occurrence)
+            held.splice(0, Math.max(0, held.length - BUFFERED))
+            waiting.set(draft.type, held)
+            return Effect.void
+          })
+
+        const subscribe = (name: string) =>
+          Effect.gen(function* subscribing() {
+            const subscription = yield* PubSub.subscribe(live)
+            listeners.set(name, (listeners.get(name) ?? 0) + 1)
+            yield* Effect.addFinalizer(() =>
+              Effect.sync(() => {
+                listeners.set(name, (listeners.get(name) ?? 1) - 1)
+              }),
+            )
+            const held = waiting.get(name) ?? []
+            waiting.delete(name)
+            yield* PubSub.publishAll(live, held)
+            return subscription
+          })
+
+        return { emit, subscribe }
+      }),
+    )
+}
+
+const describe = (error: unknown): string => {
+  if (error instanceof Rejected) {
+    return error.reason
+  }
+  if (error instanceof Error) {
+    return error.message
+  }
+  return String(error)
+}
+
+const ANSWER = Symbol("answer")
+
+/** A tool's answer with content of its own (an image, say) beside its structured result. */
+export interface Answer {
+  readonly [ANSWER]: true
+  readonly structured: Record<string, unknown>
+  readonly content: CallToolResult["content"]
+}
+
+export const answer = (
+  structured: Record<string, unknown>,
+  content: CallToolResult["content"],
+): Answer => ({ [ANSWER]: true, structured, content })
+
+const isAnswer = (value: unknown): value is Answer =>
+  typeof value === "object" && value !== null && ANSWER in value
+
+const toResult = (value: unknown): CallToolResult => {
+  if (isAnswer(value)) {
+    return { content: value.content, structuredContent: value.structured }
+  }
+  if (typeof value === "string") {
+    return { content: [{ type: "text", text: value }] }
+  }
+  const text = JSON.stringify(value ?? null)
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? { content: [{ type: "text", text }], structuredContent: value }
+    : { content: [{ type: "text", text }] }
+}
+
+const anything = Schema.toStandardSchemaV1(Schema.Record(Schema.String, Schema.Unknown))
+const streamParams = Schema.toStandardSchemaV1(
+  Schema.Struct({
+    name: Schema.String,
+    heartbeatMs: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+  }),
+)
+
+const jsonSchema = (schema: Schema.Top) => {
+  const doc = Schema.toJsonSchemaDocument(schema)
+  return Object.keys(doc.definitions).length > 0
+    ? { ...doc.schema, $defs: doc.definitions }
+    : doc.schema
+}
+
+/** Serves an app over MCP on `transport` until the scope closes. Returns what waits for the client to go. */
+export const serve = Effect.fnUntraced(function* serving<R>(app: App<R>, transport: Transport) {
+  const events = yield* AppEvents
+  const run = yield* FiberSet.makeRuntimePromise<R | AppEvents>()
+  const mcp = new McpServer(
+    { name: app.name, version: app.version },
+    {
+      capabilities: {
+        tools: {},
+        resources: {},
+        extensions: { [EVENTS]: { listChanged: false } },
+      },
+      ...(app.instructions === undefined ? {} : { instructions: app.instructions }),
+    },
+  )
+
+  for (const t of app.tools) {
+    // A tool names the UI resource its results show in (MCP Apps' field, which A2UI's MCP catalog
+    // reads too); a tool feeding several widgets names the first.
+    const fed = app.widgets.find((w) => w.tool === t.name)
+    const config = {
+      description: t.description,
+      annotations: { readOnlyHint: t.readOnly },
+      ...(fed && { _meta: { ui: { resourceUri: fed.resource } } }),
+    }
+    const call = async (input: unknown) =>
+      await run(
+        t.run(input).pipe(
+          Effect.map(toResult),
+          Effect.catch((error) =>
+            Effect.succeed<CallToolResult>({
+              content: [{ type: "text", text: describe(error) }],
+              isError: true,
+            }),
+          ),
+        ),
+      )
+    if (t.input) {
+      mcp.registerTool(t.name, { ...config, inputSchema: t.input }, call)
+    } else {
+      mcp.registerTool(t.name, config, async () => await call({}))
+    }
+  }
+
+  for (const w of app.widgets) {
+    mcp.registerResource(
+      w.title,
+      w.resource,
+      { mimeType: A2UI_MIME_TYPE, _meta: { [WIDGET]: descriptor(w) } },
+      async () => ({
+        contents: [
+          { uri: w.resource, mimeType: A2UI_MIME_TYPE, text: JSON.stringify(await w.a2ui()) },
+        ],
+      }),
+    )
+  }
+
+  const list = app.events.map((e) => ({
+    name: e.type,
+    description: "",
+    delivery: ["push"],
+    inputSchema: { type: "object", properties: {} },
+    payloadSchema: jsonSchema(e.payload),
+    _meta: { [VERSION]: e.version },
+  }))
+  mcp.server.setRequestHandler("events/list", { params: anything }, () => ({ events: list }))
+
+  // A push subscription: confirm, then each occurrence as a notification, with a heartbeat when
+  // quiet, until the client cancels. No replay, so every cursor is null.
+  mcp.server.setRequestHandler("events/stream", { params: streamParams }, async (params, ctx) => {
+    if (!app.events.some((e) => e.type === params.name)) {
+      throw new ProtocolError(-32_023, "NotFound", { kind: "event" })
+    }
+    const heartbeatMs = Math.max(5000, Math.min(params.heartbeatMs ?? 30_000, 300_000))
+    const meta = { [SUBSCRIPTION]: ctx.mcpReq.id }
+    const notify = (method: string, p: Record<string, unknown>) =>
+      Effect.promise(async () => {
+        await ctx.mcpReq.notify({ method, params: { ...p, _meta: meta } })
+      })
+    return await run(
+      Effect.scoped(
+        Effect.gen(function* streaming() {
+          const subscription = yield* events.subscribe(params.name)
+          yield* notify("notifications/events/active", {
+            cursor: null,
+            truncated: false,
+            heartbeatMs,
+          })
+          for (;;) {
+            const next = yield* Effect.timeoutOption(PubSub.take(subscription), heartbeatMs)
+            if (Option.isNone(next)) {
+              yield* notify("notifications/events/heartbeat", { cursor: null })
+            } else if (next.value.name === params.name) {
+              yield* notify("notifications/events/event", { ...next.value, cursor: null })
+            }
+          }
+        }),
+      ),
+      { signal: ctx.mcpReq.signal },
+    ).then(() => ({ _meta: meta }))
+  })
+
+  const closed = yield* Deferred.make<boolean>()
+  // MCP's own hook, not a DOM target.
+  Object.assign(mcp.server, {
+    onclose: () => {
+      Deferred.doneUnsafe(closed, Exit.succeed(true))
+    },
+  })
+  yield* Effect.acquireRelease(
+    Effect.promise(async () => {
+      await mcp.connect(transport)
+    }),
+    () =>
+      Effect.promise(async () => {
+        await mcp.close()
+      }),
+  )
+  return Effect.asVoid(Deferred.await(closed))
+})
