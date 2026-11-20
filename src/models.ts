@@ -1,6 +1,7 @@
 // Models for a spur, through the host that runs it: a spur holds no model keys. Its requests go to
 // the client over MCP, under the `ax.switch/models` extension, and the core answers them with the
-// user's own profile: `models/decide` picks among choices, `models/complete` writes text.
+// user's own profile: `models/decide` picks among choices, `models/complete` writes text. The same
+// connection carries a spur's action items (`ax.switch/asks`): `asks/open` and `asks/close`.
 import { Context, Deferred, Effect, Layer, Schema } from "effect"
 import type { Cause } from "effect"
 
@@ -117,7 +118,67 @@ const modelsKey: Context.Service<ModelsService, ModelsShape> = Context.Service<
   ModelsShape
 >("spur-kit/Models")
 
-const modelsLayer: Layer.Layer<ModelsService | PeerService> = Layer.effectContext(
+/** The client capability extension a host declares when it takes a spur's action items. */
+export const ASKS = "ax.switch/asks"
+
+/** A draft: words to send in the user's name, editable on the card. */
+export interface AskDraft {
+  readonly name: string
+  readonly label: string
+  readonly text: string
+}
+
+/** A file on the card: `blob` is its key in the brain's blob store, or `url` a link. */
+export interface AskAttachment {
+  readonly name: string
+  readonly type: string
+  readonly size?: number
+  readonly blob?: string
+  readonly url?: string
+  /** Beside this option. */
+  readonly option?: number
+}
+
+/**
+ * An action item a spur puts in the user's queue. `answerTo` names one of its own tools (best
+ * `appOnly`) the core calls once it closes: with `{ item, status, answer }`, or for a sealed ask
+ * `{ item, use, enc, ct }`, which `openSealed` (spur-kit/sealed) opens with the ask's secret key.
+ * A sealed ask's answer reaches only that tool; the brain records only that it was answered.
+ */
+export interface AskInput {
+  readonly title: string
+  readonly body: string
+  readonly kind?: "task" | "question" | "approval" | "sealed"
+  /** Its space; Home when absent. */
+  readonly space?: string
+  readonly options?: readonly string[]
+  readonly drafts?: readonly AskDraft[]
+  readonly attachments?: readonly AskAttachment[]
+  readonly resolveWhen?: string
+  readonly notify?: boolean
+  readonly answerTo?: string
+  /** A sealed ask's one-time key (`sealedKey().key`) and what the secret is for. */
+  readonly sealed?: { readonly key: string; readonly use: string }
+}
+
+export interface AsksShape {
+  /** Opens it, or revises the open one with `id` (an id this spur gave before). */
+  readonly open: (ask: AskInput, id?: string) => Effect.Effect<{ readonly id: string }, ModelError>
+  readonly close: (id: string, status: "done" | "dismissed") => Effect.Effect<void, ModelError>
+}
+
+/** The `Asks` service's identifier, as a requirement. */
+export interface AsksService {
+  readonly Asks: unique symbol
+}
+
+const asksKey: Context.Service<AsksService, AsksShape> = Context.Service<AsksService, AsksShape>(
+  "spur-kit/Asks",
+)
+
+const opened = Schema.Struct({ id: Schema.String })
+
+const modelsLayer: Layer.Layer<ModelsService | AsksService | PeerService> = Layer.effectContext(
   Effect.gen(function* making() {
     const ready = yield* Deferred.make<Send | null>()
     const peer: PeerShape = {
@@ -138,7 +199,7 @@ const modelsLayer: Layer.Layer<ModelsService | PeerService> = Layer.effectContex
           }),
         )
         if (send === null) {
-          return yield* Effect.fail(new ModelError({ message: "The host offers no models" }))
+          return yield* Effect.fail(new ModelError({ message: "The host offers none" }))
         }
         const raw = yield* Effect.tryPromise({
           try: async () => await send(method, params),
@@ -152,9 +213,19 @@ const modelsLayer: Layer.Layer<ModelsService | PeerService> = Layer.effectContex
       complete: (role, system, prompt) =>
         ask("models/complete", { role, system, prompt }, completion),
     }
-    return Context.make(modelsKey, models).pipe(Context.add(Peer, peer))
+    const asks: AsksShape = {
+      open: (input, id) =>
+        ask("asks/open", { ask: input, ...(id !== undefined && { id }) }, opened),
+      close: (id, status) => Effect.asVoid(ask("asks/close", { id, status }, Schema.Unknown)),
+    }
+    return Context.make(modelsKey, models).pipe(Context.add(asksKey, asks), Context.add(Peer, peer))
   }),
 )
+
+/** Action items through the host: provided by `Models.layer`, which `serve` connects. */
+export const Asks: Context.Service<AsksService, AsksShape> & {
+  readonly layer: typeof modelsLayer
+} = Object.assign(asksKey, { layer: modelsLayer })
 
 /** Models through the host: `serve` connects it. */
 export const Models: Context.Service<ModelsService, ModelsShape> & {

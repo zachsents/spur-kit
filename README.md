@@ -62,4 +62,19 @@ probabilities, `complete(role, system, prompt)` writes text. The host declares t
 `ax.switch/models` client extension and answers `models/decide` and `models/complete`; without
 one, each call fails with `ModelError`.
 
+## Action items
+
+`Asks` (provided by `Models.layer`) puts an item in the user's queue through the host:
+`open({ title, body, kind?, options?, drafts?, attachments?, space?, answerTo? })` and
+`close(id, status)`. The host declares `ax.switch/asks` and answers `asks/open` and
+`asks/close`. `answerTo` names one of the spur's tools (make it `appOnly`), called once the item
+closes with `{ item, status, answer }`.
+
+A sealed ask takes a secret without it entering the brain, a chat or a model's context: make a
+one-time key with `sealedKey()` (`spur-kit/sealed`), open the ask with `kind: "sealed"`,
+`sealed: { key, use }` and `answerTo`, and keep `secretKey`. The user's client seals what they type
+to `key` (HPKE, RFC 9180: X25519, HKDF-SHA256, AES-256-GCM, bound to the item's id and `use`); the
+core hands the sealed bytes only to `answerTo`, as `{ item, use, enc, ct }`, and records only that
+it was answered. `openSealed(secretKey, item, use, { enc, ct })` gives the secret back.
+
 Switch installs it from a git URL or package name: `spurs_install`, or Spurs in the desktop.

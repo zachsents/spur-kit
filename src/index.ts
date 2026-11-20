@@ -48,8 +48,13 @@ export type {
   StoredEvent,
 } from "./log.ts"
 export { manifest, need, readManifest } from "./manifest.ts"
-export { ModelError, Models, MODELS, Peer } from "./models.ts"
+export { Asks, ASKS, ModelError, Models, MODELS, Peer } from "./models.ts"
 export type {
+  AskAttachment,
+  AskDraft,
+  AskInput,
+  AsksService,
+  AsksShape,
   Answer as ModelAnswer,
   Choice,
   Completion,
@@ -84,3 +89,5 @@ export {
 } from "./laptop.ts"
 export type { Reader } from "./laptop.ts"
 export type { Message, Received, Sender } from "./messages.ts"
+export { openSealed, seal, SEALED_DOMAIN, sealedInfo, sealedKey } from "./sealed.ts"
+export type { SealedAnswer } from "./sealed.ts"

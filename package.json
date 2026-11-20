@@ -13,6 +13,10 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./sealed": {
+      "types": "./src/sealed.ts",
+      "default": "./src/sealed.ts"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
