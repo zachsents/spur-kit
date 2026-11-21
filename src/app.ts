@@ -204,10 +204,18 @@ export interface App<R = never> {
   readonly version: string
   readonly instructions?: string
   readonly connections: readonly Need[]
+  /** What it reaches beyond itself (`REACHES`): tools it calls, brain event types it follows. */
+  readonly reaches?: Reaches
   readonly tools: readonly Tool<R>[]
   /** Its own events plus the UI analytics family, which every app publishes. */
   readonly events: readonly AppEvent[]
   readonly widgets: readonly WidgetDef[]
+}
+
+/** Tools a spur calls (`switch/call`) and brain event types it follows (`switch/follow`). */
+export interface Reaches {
+  readonly calls?: readonly string[]
+  readonly follows?: readonly string[]
 }
 
 export const defineApp = <R = never>(app: {
@@ -215,6 +223,7 @@ export const defineApp = <R = never>(app: {
   readonly version: string
   readonly instructions?: string
   readonly connections?: readonly Need[]
+  readonly reaches?: Reaches
   readonly tools: readonly Tool<R>[]
   readonly events?: readonly AppEvent[]
   readonly widgets?: readonly WidgetDef[]
@@ -402,6 +411,12 @@ export const serve: <R>(
             ...(app.connections.length > 0 && {
               [CONNECTIONS]: {
                 needs: app.connections.map((n) => ({ ...n, scopes: [...n.scopes] })),
+              },
+            }),
+            ...(app.reaches !== undefined && {
+              [REACHES]: {
+                ...(app.reaches.calls !== undefined && { calls: [...app.reaches.calls] }),
+                ...(app.reaches.follows !== undefined && { follows: [...app.reaches.follows] }),
               },
             }),
           },

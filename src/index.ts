@@ -23,6 +23,7 @@ export type {
   AppEventsService,
   AppEventsShape,
   Occurrence,
+  Reaches,
   Size,
   Surface,
   Tool,
