@@ -48,8 +48,6 @@ export interface Manifest {
   readonly connections?: readonly Need[]
   /** The widgets it publishes, by name. */
   readonly widgets?: readonly string[]
-  /** Where its widgets go until they're placed; made, with `name`, if there's none. */
-  readonly space?: { readonly id: string; readonly name: string }
 }
 
 export const manifest: Schema.Codec<Manifest> = Schema.Struct({
@@ -67,8 +65,6 @@ export const manifest: Schema.Codec<Manifest> = Schema.Struct({
   connections: Schema.optionalKey(Schema.Array(need)),
   /** The widgets it publishes, by name. */
   widgets: Schema.optionalKey(Schema.Array(Schema.String)),
-  /** Where its widgets go until they're placed; made, with `name`, if there's none. */
-  space: Schema.optionalKey(Schema.Struct({ id: Schema.String, name: Schema.String })),
 })
 
 const pkg = Schema.Struct({

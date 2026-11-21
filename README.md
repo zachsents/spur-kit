@@ -33,8 +33,7 @@ Its `package.json` carries the manifest:
   "main": "src/main.ts",
   "needs": ["macos"],
   "connections": [{ "provider": "google", "scopes": ["…"], "multiple": true }],
-  "widgets": ["face"],
-  "space": { "id": "home", "name": "Home" }
+  "widgets": ["face"]
 }
 ```
 
@@ -45,6 +44,9 @@ A spur that isn't TypeScript gives `command` instead of `main` (its `./` paths f
 folder), and `"shim": "switchboard"` if it's a Switchboard appendage.
 
 ## Widgets
+
+A spur never suggests or makes a space: spaces are the user's. A widget goes on no board until
+the user (or the agent, asked) adds it to a space; until then it's in the space's picker.
 
 A widget's `size` says how it sits in a space's grid, in units (one square cell): its `aspect`
 (`square`, `wide`, `tall` or `auto`), a `ratio` a wide or tall one keeps (`16 / 9`), its `min`,

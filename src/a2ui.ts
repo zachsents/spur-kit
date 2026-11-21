@@ -8,9 +8,6 @@ export const SWITCH_CATALOG = "https://switch.ax/catalogs/v1/catalog.json"
 export const BASIC_CATALOG = "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
 export const MCP_CATALOG = "https://a2ui.org/specification/v1_0/catalogs/mcp/catalog.json"
 
-/** The space every brain has: where a widget goes when it suggests no other. */
-export const HOME = "home"
-
 /** One surface's messages: made in `catalog`, then its components (one has id `root`). */
 export const surface = (
   id: string,

@@ -31,7 +31,7 @@ export type {
   WidgetDef,
   WidgetSetting,
 } from "./app.ts"
-export { BASIC_CATALOG, HOME, MCP_CATALOG, mcpApp, surface, SWITCH_CATALOG, view } from "./a2ui.ts"
+export { BASIC_CATALOG, MCP_CATALOG, mcpApp, surface, SWITCH_CATALOG, view } from "./a2ui.ts"
 export { checker, defineEvent, Rejected } from "./events.ts"
 export type { Check, DefinedEvent, Draft, EventDef, Payload } from "./events.ts"
 export { defineCommand, Log, on } from "./log.ts"

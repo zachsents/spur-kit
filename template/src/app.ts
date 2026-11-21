@@ -1,7 +1,7 @@
 // A starting point: a read-only tool, one that changes something and says so as an event, and a
 // widget drawn from the read-only tool's result. Rename, then replace the notes with the real thing.
 import { Context, Effect, Layer, Ref, Schema } from "effect"
-import { AppEvents, defineApp, defineEvent, HOME, SWITCH_CATALOG, tool } from "spur-kit"
+import { AppEvents, defineApp, defineEvent, SWITCH_CATALOG, tool } from "spur-kit"
 import type { AppEventsService } from "spur-kit"
 
 const note = Schema.Struct({ id: Schema.Finite, text: Schema.String })
@@ -64,7 +64,6 @@ export const helloApp = defineApp<Notes>({
       title: "Notes",
       surfaces: ["space"],
       resource: "ui://hello/notes",
-      space: HOME,
       tool: "list",
       refresh: [Added.type],
       // A line per note, in Switch's catalog.
