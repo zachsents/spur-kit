@@ -12,6 +12,7 @@ export {
   tool,
   VERSION,
   widget,
+  widgetSetting,
   WIDGET,
 } from "./app.ts"
 export type {
@@ -28,6 +29,7 @@ export type {
   Units,
   Widget,
   WidgetDef,
+  WidgetSetting,
 } from "./app.ts"
 export { BASIC_CATALOG, HOME, MCP_CATALOG, mcpApp, surface, SWITCH_CATALOG, view } from "./a2ui.ts"
 export { checker, defineEvent, Rejected } from "./events.ts"

@@ -144,6 +144,23 @@ export const size: Schema.Codec<Size> = Schema.Struct({
   empty: Schema.optionalKey(Schema.Literals(["line", "hide"])),
 })
 
+/** A setting the user picks per placement of a widget: one of a few options. The host keeps the
+ * choice with the placement and calls the widget's tool with it, under `key`. */
+export interface WidgetSetting {
+  readonly key: string
+  readonly label: string
+  readonly options: readonly { readonly value: string; readonly label: string }[]
+  /** Its value until the user picks one. */
+  readonly initial: string
+}
+
+export const widgetSetting: Schema.Codec<WidgetSetting> = Schema.Struct({
+  key: Schema.String,
+  label: Schema.String,
+  options: Schema.Array(Schema.Struct({ value: Schema.String, label: Schema.String })),
+  initial: Schema.String,
+})
+
 /** A descriptor only: what it is, where it can show, its view, and the data feeding it, if any. */
 export interface Widget {
   readonly name: string
@@ -159,6 +176,8 @@ export interface Widget {
   readonly refresh?: readonly string[]
   /** How it sits in a space's grid; none is `auto`. */
   readonly size?: Size
+  /** What the user can set on each placement, passed to its tool. */
+  readonly settings?: readonly WidgetSetting[]
 }
 
 export const widget: Schema.Codec<Widget> = Schema.Struct({
@@ -175,6 +194,8 @@ export const widget: Schema.Codec<Widget> = Schema.Struct({
   refresh: Schema.optionalKey(Schema.Array(Schema.String)),
   /** How it sits in a space's grid; none is `auto`. */
   size: Schema.optionalKey(size),
+  /** What the user can set on each placement, passed to its tool. */
+  settings: Schema.optionalKey(Schema.Array(widgetSetting)),
 })
 
 /** A widget as its app defines it: the descriptor, and its A2UI messages (one surface, any id). */
