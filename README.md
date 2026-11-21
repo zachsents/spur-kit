@@ -38,6 +38,9 @@ Its `package.json` carries the manifest:
 }
 ```
 
+`template/` is one to copy: a read-only tool, a tool that emits an event, a widget, the manifest
+and the checks (`bun run check`: types, UI copy, lint, format).
+
 A spur that isn't TypeScript gives `command` instead of `main` (its `./` paths from the package's
 folder), and `"shim": "switchboard"` if it's a Switchboard appendage.
 
@@ -47,6 +50,15 @@ A widget's `size` says how it sits in a space's grid, in units (one square cell)
 (`square`, `wide`, `tall` or `auto`), a `ratio` a wide or tall one keeps (`16 / 9`), its `min`,
 `preferred` and `max` `{ cols, rows }`, whether it `grows` past preferred, and what it is with
 nothing to show (`empty`: a single `line`, the default, or `hide`).
+
+## UI copy
+
+`ui-captions [--allow <file>] [path…]`, a bin, fails on UI copy that narrates: a caption, hint or
+empty-state line saying what the app does or how it works, first person, a tooltip past one word,
+a placeholder past two, or a dimmed state word or age beside a name. It reads TSX (JSX text, copy
+attributes, the ink from classes), A2UI `text`/`label` properties in TypeScript, and Swift. Its
+allowlist (`ui-captions.allow`: a path, a tab, words from the string) is for real information only,
+such as a permission that's off. A spur runs it in its check, as the template does.
 
 ## Its own log
 

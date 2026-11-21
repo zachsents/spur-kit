@@ -5,5 +5,5 @@ import react from "ultracite/oxlint/react"
 export default defineConfig({
   extends: [core, react],
   options: { typeAware: true },
-  ignorePatterns: ["**/.hutch/**", "**/dist/**", "**/build/**"],
+  ignorePatterns: ["**/.hutch/**", "**/dist/**", "**/build/**", "template/**"],
 })
