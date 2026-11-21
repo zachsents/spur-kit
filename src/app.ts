@@ -289,9 +289,9 @@ const appEventsLayer = (app: {
             return Effect.fail(new Rejected({ reason: `${draft.type}: ${checked.failure}` }))
           }
           const occurrence: Occurrence = {
-            eventId: randomUUID(),
+            eventId: draft.id ?? randomUUID(),
             name: draft.type,
-            timestamp: new Date().toISOString(),
+            timestamp: draft.time ?? new Date().toISOString(),
             data: checked.success,
           }
           if ((listeners.get(draft.type) ?? 0) > 0) {

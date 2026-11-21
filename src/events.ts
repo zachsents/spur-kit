@@ -6,10 +6,16 @@ import type { Cause } from "effect"
 /** A payload schema that needs no services, so it can be checked synchronously. */
 export type Payload<T> = Schema.Codec<T, unknown>
 
-/** An event before it's in the log: its type and payload. */
+/**
+ * An event before it's in the log: its type and payload, and optionally its own id and time. An
+ * id the spur gives (stable for one occurrence) is recorded once however often it's sent.
+ */
 export interface Draft {
   readonly type: string
   readonly payload: unknown
+  readonly id?: string
+  /** When it happened, as an ISO instant; else when it's emitted. */
+  readonly time?: string
 }
 
 /** Checks a payload against its schema and returns its encoded form, or why it failed. */
