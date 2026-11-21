@@ -10,6 +10,18 @@ it as MCP on stdio. Also the shim that makes a Switchboard appendage a spur.
 bun add github:zachsents/spur-kit effect
 ```
 
+## What a spur is
+
+One general capability that makes repeated work efficient: not a category (travel, errands), and
+not a one-off site script (a one-off is done with the general spurs, such as the browser and email).
+How the user likes it used (pay once they've approved) is learned in Switch's brain, never written
+into the spur. It has one of two homes:
+
+- **Its own public repo** (`spur-<name>`), for an important, general one, with nothing personal in
+  it.
+- **A folder in the user's private spurs monorepo**, for a personal one. Names and businesses may be
+  there; secrets never are.
+
 ## A spur
 
 ```ts
@@ -91,4 +103,6 @@ to `key` (HPKE, RFC 9180: X25519, HKDF-SHA256, AES-256-GCM, bound to the item's 
 core hands the sealed bytes only to `answerTo`, as `{ item, use, enc, ct }`, and records only that
 it was answered. `openSealed(secretKey, item, use, { enc, ct })` gives the secret back.
 
-Switch installs it from a git URL or package name: `spurs_install`, or Spurs in the desktop.
+Switch installs it from a git URL or package name: `spurs_install`, or Spurs in the desktop. A
+monorepo folder is installed at a commit from the core machine's `~/.switch/spurs.json`
+(`{ "source": "github:<owner>/<repo>#<commit>", "path": "<folder>" }`), packed from that folder.
